@@ -72,8 +72,7 @@ export default async function handler(req, res) {
     }
     
   } catch (error) {
-    console.error("[CRITICAL ERROR]", { errorMessage: error.message, errorStack: error.stack });
-    // Para la UI, devolvemos el error. Para Tachiyomi, es mejor devolver la imagen de fallback.
+    console.error("[CRITICAL ERROR]", { errorMessage: error.message });
     const fallbackBuffer = await fs.readFile(path.join(process.cwd(), 'public', 'error.png'));
     res.setHeader('Content-Type', 'image/png');
     res.setHeader('X-Image-Status', 'Error-Fallback');
@@ -97,4 +96,4 @@ function sendOriginal(res, buffer, contentType) {
   res.setHeader('X-Original-Size', buffer.length);
   res.setHeader('X-Compressed-Size', buffer.length);
   res.send(buffer);
-      }
+}
