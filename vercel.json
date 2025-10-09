@@ -2,19 +2,18 @@
   "version": 2,
   "functions": {
     "api/index.js": {
-      "maxDuration": 60,
-      "memory": 1024
+      "maxDuration": 60
     }
   },
   "rewrites": [
     {
-      "source": "/(.*)",
+      "source": "/api/compress",
       "destination": "/api"
     }
   ],
   "headers": [
     {
-      "source": "/(.*)",
+      "source": "/api/compress",
       "headers": [
         { "key": "Access-Control-Allow-Origin", "value": "*" },
         { "key": "Access-Control-Allow-Methods", "value": "GET, OPTIONS" },
