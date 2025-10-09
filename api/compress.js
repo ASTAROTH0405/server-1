@@ -2,14 +2,12 @@ import fetch from 'node-fetch';
 import sharp from 'sharp';
 import { AbortController } from 'abort-controller';
 
-// --- CONFIGURACIÓN "CAZADOR INFALIBLE" ---
+// --- CONFIGURACIÓN "COHETE DE UN SOLO DISPARO" ---
 const MAX_INPUT_SIZE_BYTES = 30 * 1024 * 1024;
-const FETCH_TIMEOUT_MS = 20000;
+const FETCH_TIMEOUT_MS = 25000;
 const MAX_IMAGE_WIDTH = 600;
-
-// --- OBJETIVOS DE TAMAÑO ---
-const TARGET_SIZE_STRICT = 100 * 1024;  // 100 KB
-const TARGET_SIZE_RELAXED = 150 * 1024; // 150 KB
+// --- TU VALOR REFINADO: CALIDAD 5 (MÁXIMA COMPRESIÓN) ---
+const WEBP_QUALITY = 5;
 
 // --- HEADERS DE TU SCRIPT ORIGINAL (LA LLAVE MAESTRA) ---
 function getHeaders(domain) {
@@ -22,50 +20,12 @@ function getHeaders(domain) {
   };
 }
 
-// --- NUEVO ALGORITMO "CAZADOR INFALIBLE" ---
-async function compressToTargetSize(inputBuffer, targetSize) {
-  let minQuality = 5;
-  let maxQuality = 100;
-  let bestBuffer = null;
-
-  const baseProcessor = sharp(inputBuffer)
-    .trim()
-    .resize({ width: MAX_IMAGE_WIDTH, withoutEnlargement: true })
-    .png({ colours: 256 });
-  
-  for (let i = 0; i < 8; i++) {
-    const currentQuality = Math.floor((minQuality + maxQuality) / 2);
-    if (currentQuality < minQuality) break;
-
-    const currentBuffer = await baseProcessor.clone().webp({ quality: currentQuality, effort: 6 }).toBuffer();
-
-    if (currentBuffer.length <= targetSize) {
-      bestBuffer = currentBuffer;
-      minQuality = currentQuality + 1;
-    } else {
-      maxQuality = currentQuality - 1;
-    }
-  }
-
-  // --- LA LÓGICA INFALIBLE ---
-  if (bestBuffer) {
-    // Si encontramos una versión que cumple el objetivo, la devolvemos.
-    return bestBuffer;
-  } else {
-    // Si NINGUNA calidad (ni siquiera la 5) cumplió el objetivo,
-    // devolvemos el "mejor esfuerzo": la versión con la calidad más baja posible.
-    console.log(`[WARN] No se alcanzó el objetivo de ${targetSize / 1024}KB. Devolviendo el mejor esfuerzo (calidad 5).`);
-    return await baseProcessor.clone().webp({ quality: 5, effort: 6 }).toBuffer();
-  }
-}
-
-
 export default async function handler(req, res) {
   if (req.url.includes('favicon')) {
     return res.status(204).send(null);
   }
   
-  const { url: imageUrl, mode } = req.query;
+  const { url: imageUrl } = req.query;
 
   if (!imageUrl) {
     return res.status(400).json({ error: 'Falta el parámetro url' });
@@ -102,11 +62,18 @@ export default async function handler(req, res) {
       return sendOriginal(res, originalBuffer, originalContentTypeHeader);
     }
     
-    const targetSize = mode === 'relaxed' ? TARGET_SIZE_RELAXED : TARGET_SIZE_STRICT;
-    const compressedBuffer = await compressToTargetSize(originalBuffer, targetSize);
+    // --- PIPELINE ULTRA-RÁPIDO ---
+    const compressedBuffer = await sharp(originalBuffer)
+      .resize({ width: MAX_IMAGE_WIDTH, withoutEnlargement: true })
+      .trim()
+      .png({ colours: 256 }) 
+      .webp({ quality: WEBP_QUALITY, effort: 6 })
+      .toBuffer();
+    
+    const compressedSize = compressedBuffer.length;
 
-    if (compressedBuffer && compressedBuffer.length < originalSize) {
-      return sendCompressed(res, compressedBuffer, originalSize, compressedBuffer.length, 'image/webp');
+    if (compressedSize < originalSize) {
+      return sendCompressed(res, compressedBuffer, originalSize, compressedSize, 'image/webp');
     } else {
       return sendOriginal(res, originalBuffer, originalContentTypeHeader);
     }
@@ -114,7 +81,7 @@ export default async function handler(req, res) {
   } catch (error) {
     console.error("[FALLBACK ACTIVADO]", { url: imageUrl, errorMessage: error.message });
     res.setHeader('Location', imageUrl);
-    res.status(302).send('Redireccionando a la fuente original por un error de sistema.');
+    res.status(302).send('Redireccionando a la fuente original por un error.');
   } finally {
     clearTimeout(timeoutId);
   }
@@ -135,4 +102,4 @@ function sendOriginal(res, buffer, contentType) {
   res.setHeader('X-Original-Size', buffer.length);
   res.setHeader('X-Compressed-Size', buffer.length);
   res.send(buffer);
-      }
+  }
