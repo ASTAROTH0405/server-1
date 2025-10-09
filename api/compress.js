@@ -1,14 +1,14 @@
 import fetch from 'node-fetch';
 import sharp from 'sharp';
-// NO SE IMPORTA NADA MÁS. AbortController es nativo.
+import { AbortController } from 'abort-controller';
 
-// --- CONFIGURACIÓN "COHETE DE UN SOLO DISPARO" ---
+// --- CONFIGURACIÓN FINAL DE PRODUCCIÓN ---
 const MAX_INPUT_SIZE_BYTES = 30 * 1024 * 1024;
-const FETCH_TIMEOUT_MS = 25000;
+const FETCH_TIMEOUT_MS = 20000; // 20 segundos es un timeout final y robusto
 const MAX_IMAGE_WIDTH = 600;
 const WEBP_QUALITY = 5;
 
-// --- HEADERS DE TU SCRIPT ORIGINAL (LA LLAVE MAESTRA) ---
+// --- HEADERS "LLAVE MAESTRA" ---
 function getHeaders(domain) {
   return {
     'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Mobile Safari/537.36',
@@ -42,7 +42,10 @@ export default async function handler(req, res) {
       headers: getHeaders(domain)
     });
 
-    if (!response.ok) throw new Error(`Error al obtener la imagen: ${response.status} ${response.statusText}`);
+    if (!response.ok) {
+        // Si la respuesta no es OK (ej. 401, 403, 521), lanzamos un error para activar el fallback.
+        throw new Error(`Respuesta no exitosa del servidor de origen: ${response.status}`);
+    }
 
     const originalContentTypeHeader = response.headers.get('content-type');
     if (!originalContentTypeHeader || !originalContentTypeHeader.startsWith('image/')) {
@@ -54,8 +57,8 @@ export default async function handler(req, res) {
     
     const originalSize = originalBuffer.length;
     if (originalSize === 0) throw new Error("La imagen descargada está vacía.");
-    if (originalSize > MAX_INPUT_SIZE_BYTES) throw new Error(`La imagen excede el límite.`);
-
+    
+    // Verificamos si es una imagen válida antes de continuar
     const metadata = await sharp(originalBuffer).metadata();
     if (metadata.pages && metadata.pages > 1) {
       return sendOriginal(res, originalBuffer, originalContentTypeHeader);
@@ -77,9 +80,10 @@ export default async function handler(req, res) {
     }
     
   } catch (error) {
-    console.error("[FALLBACK ACTIVADO]", { url: imageUrl, errorMessage: error.message });
+    // Si cualquier paso del 'try' falla, activamos la redirección.
+    console.error(`[FALLBACK INTELIGENTE ACTIVADO] para ${imageUrl}. Razón: ${error.message}`);
     res.setHeader('Location', imageUrl);
-    res.status(302).send('Redireccionando a la fuente original por un error.');
+    res.status(302).end(); // Usamos .end() para una respuesta más limpia.
   } finally {
     clearTimeout(timeoutId);
   }
@@ -100,4 +104,4 @@ function sendOriginal(res, buffer, contentType) {
   res.setHeader('X-Original-Size', buffer.length);
   res.setHeader('X-Compressed-Size', buffer.length);
   res.send(buffer);
-        }
+      }
