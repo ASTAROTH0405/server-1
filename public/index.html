@@ -54,10 +54,7 @@
         </div>
     </main>
 <script>
-    // --- ÚNICO CAMBIO IMPORTANTE ---
-    // La URL para Tachiyomi ahora debe incluir el endpoint de la API
     document.getElementById('server-url').value = `${window.location.origin}/api/compress`;
-
     const form = document.getElementById('compress-form');
     const urlInput = document.getElementById('url-input');
     const loader = document.getElementById('loader');
@@ -69,8 +66,6 @@
         resultsContainer.style.display = 'none';
 
         const imageUrl = urlInput.value;
-        // --- ÚNICO CAMBIO IMPORTANTE ---
-        // Apuntamos al nuevo endpoint /api/compress
         const apiUrl = `/api/compress?url=${encodeURIComponent(imageUrl)}`;
         
         try {
