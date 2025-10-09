@@ -1,8 +1,8 @@
 {
   "name": "bandwidth-hero-super-ultra",
-  "version": "5.1.0",
+  "version": "6.0.0",
   "description": "Compresión de imágenes extrema, inteligente y robusta para Tachiyomi",
-  "main": "api/index.js",
+  "main": "api/compress.js",
   "type": "module",
   "engines": {
     "node": ">=18.0.0"
@@ -12,13 +12,6 @@
     "node-fetch": "^3.3.2",
     "sharp": "^0.33.4"
   },
-  "keywords": [
-    "image-compression",
-    "tachiyomi",
-    "manga",
-    "manhua",
-    "vercel-serverless"
-  ],
   "author": "ASTAROTH",
   "license": "MIT"
 }
