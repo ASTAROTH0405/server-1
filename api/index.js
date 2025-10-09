@@ -39,10 +39,16 @@ export default async function handler(req, res) {
   const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 
   try {
-    // --- LÓGICA DE DESCARGA CORREGIDA Y MÁS COMPATIBLE ---
     const response = await fetch(imageUrl, { headers: HYPER_REALISTIC_HEADERS, signal: controller.signal });
     if (!response.ok) {
         throw new Error(`Error al obtener la imagen: ${response.status} ${response.statusText}`);
+    }
+
+    // --- ¡VALIDACIÓN CRÍTICA AÑADIDA! ---
+    // Comprueba si el servidor de origen realmente nos envió una imagen.
+    const contentType = response.headers.get('content-type');
+    if (!contentType || !contentType.startsWith('image/')) {
+      throw new Error(`La URL no devolvió una imagen válida. Content-Type recibido: ${contentType || 'ninguno'}`);
     }
 
     const contentLength = response.headers.get('content-length');
@@ -52,12 +58,11 @@ export default async function handler(req, res) {
 
     const originalBuffer = await response.buffer();
     const originalSize = originalBuffer.length;
-    // Comprobación de tamaño post-descarga por si el header no existía
     if (originalSize > MAX_INPUT_SIZE_BYTES) {
         throw new Error(`La imagen (tamaño real) excede el límite de ${MAX_INPUT_SIZE_BYTES / 1024 / 1024} MB`);
     }
 
-    const originalContentType = response.headers.get('content-type') || 'image/jpeg';
+    const originalContentType = contentType;
     
     const metadata = await sharp(originalBuffer).metadata();
     if (metadata.pages && metadata.pages > 1) {
@@ -116,4 +121,4 @@ function sendOriginal(res, buffer, contentType) {
   res.setHeader('X-Original-Size', buffer.length);
   res.setHeader('X-Compressed-Size', buffer.length);
   res.send(buffer);
-             }
+                          }
