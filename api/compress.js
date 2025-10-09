@@ -6,25 +6,17 @@ import path from 'path';
 
 // --- CONFIGURACIÓN FINAL ---
 const MAX_INPUT_SIZE_BYTES = 30 * 1024 * 1024;
-const FETCH_TIMEOUT_MS = 12000; // Un timeout más corto y razonable: 12 segundos
+const FETCH_TIMEOUT_MS = 15000; // 15 segundos es un buen equilibrio
 const MAX_IMAGE_WIDTH = 1080;
 
-// --- HEADERS GENÉRICOS DE NAVEGADOR (Menos sospechosos que los de móvil) ---
+// --- HEADERS GENÉRICOS DE NAVEGADOR (Los más compatibles) ---
 function getHeaders(domain) {
   return {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36',
     'Accept': 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
     'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
-    'Referer': domain + '/'
+    'Referer': domain ? domain + '/' : 'https://www.google.com/'
   };
-}
-
-// --- LÓGICA DE HYPER-COMPRESSION ---
-function getBestFormat(acceptHeader = '') {
-  if (acceptHeader && acceptHeader.includes('image/avif')) {
-    return { format: 'avif', contentType: 'image/avif', quality: 45 };
-  }
-  return { format: 'webp', contentType: 'image/webp', quality: 50 };
 }
 
 export default async function handler(req, res) {
@@ -69,20 +61,32 @@ export default async function handler(req, res) {
       return sendOriginal(res, originalBuffer, originalContentTypeHeader);
     }
     
-    const clientAcceptHeader = req.headers.accept;
-    const targetFormat = getBestFormat(clientAcceptHeader);
-    
-    const compressedBuffer = await sharp(originalBuffer)
+    // --- LÓGICA DE COMPRESIÓN COMPETITIVA ---
+    const baseProcessor = sharp(originalBuffer)
       .trim()
       .resize({ width: MAX_IMAGE_WIDTH, withoutEnlargement: true })
-      .png({ colours: 256 }) // Quantization para máxima compresión
-      [targetFormat.format]({ quality: targetFormat.quality })
-      .toBuffer();
+      .png({ colours: 256 }); // Quantization para máxima compresión
+
+    // Comprimimos a AMBOS formatos en paralelo
+    const [avifBuffer, webpBuffer] = await Promise.all([
+      baseProcessor.clone().avif({ quality: 45 }).toBuffer(),
+      baseProcessor.clone().webp({ quality: 50 }).toBuffer()
+    ]);
     
-    const compressedSize = compressedBuffer.length;
+    // Elegimos el ganador
+    let winner, winnerContentType;
+    if (avifBuffer.length < webpBuffer.length) {
+      winner = avifBuffer;
+      winnerContentType = 'image/avif';
+    } else {
+      winner = webpBuffer;
+      winnerContentType = 'image/webp';
+    }
+
+    const compressedSize = winner.length;
 
     if (compressedSize < originalSize) {
-      return sendCompressed(res, compressedBuffer, originalSize, compressedSize, targetFormat.contentType);
+      return sendCompressed(res, winner, originalSize, compressedSize, winnerContentType);
     } else {
       return sendOriginal(res, originalBuffer, originalContentTypeHeader);
     }
@@ -96,6 +100,19 @@ export default async function handler(req, res) {
   }
 }
 
-// ... Las funciones sendCompressed y sendOriginal se mantienen igual
-function sendCompressed(res, buffer, originalSize, compressedSize, contentType) { /* ... */ }
-function sendOriginal(res, buffer, contentType) { /* ... */ }
+// --- LAS FUNCIONES HELPER QUE FALTABAN ---
+function sendCompressed(res, buffer, originalSize, compressedSize, contentType) {
+  res.setHeader('Cache-Control', 's-maxage=31536000, stale-while-revalidate');
+  res.setHeader('Content-Type', contentType);
+  res.setHeader('X-Original-Size', originalSize);
+  res.setHeader('X-Compressed-Size', compressedSize);
+  res.send(buffer);
+}
+
+function sendOriginal(res, buffer, contentType) {
+  res.setHeader('Cache-Control', 's-maxage=31536000, stale-while-revalidate');
+  res.setHeader('Content-Type', contentType);
+  res.setHeader('X-Original-Size', buffer.length);
+  res.setHeader('X-Compressed-Size', buffer.length);
+  res.send(buffer);
+               }
