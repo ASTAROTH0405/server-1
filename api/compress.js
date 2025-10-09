@@ -6,7 +6,6 @@ import { AbortController } from 'abort-controller';
 const MAX_INPUT_SIZE_BYTES = 30 * 1024 * 1024;
 const FETCH_TIMEOUT_MS = 25000;
 const MAX_IMAGE_WIDTH = 600;
-// --- TU VALOR REFINADO: CALIDAD 5 (MÁXIMA COMPRESIÓN) ---
 const WEBP_QUALITY = 5;
 
 // --- HEADERS DE TU SCRIPT ORIGINAL (LA LLAVE MAESTRA) ---
@@ -43,23 +42,27 @@ export default async function handler(req, res) {
       headers: getHeaders(domain)
     });
 
-    if (!response.ok) throw new Error(`Error al obtener la imagen: ${response.status} ${response.statusText}`);
+    if (!response.ok) throw new Error(`Error HTTP al obtener la imagen: ${response.status}`);
 
-    const originalContentTypeHeader = response.headers.get('content-type');
-    if (!originalContentTypeHeader || !originalContentTypeHeader.startsWith('image/')) {
-      throw new Error(`La URL no devolvió una imagen válida. Content-Type: ${originalContentTypeHeader || 'ninguno'}`);
-    }
-    
     const arrayBuffer = await response.arrayBuffer();
     const originalBuffer = Buffer.from(arrayBuffer);
     
     const originalSize = originalBuffer.length;
     if (originalSize === 0) throw new Error("La imagen descargada está vacía.");
-    if (originalSize > MAX_INPUT_SIZE_BYTES) throw new Error(`La imagen excede el límite.`);
 
-    const metadata = await sharp(originalBuffer).metadata();
+    // --- EL PASO DEL GUARDIÁN: VERIFICACIÓN INFALIBLE ---
+    let metadata;
+    try {
+      metadata = await sharp(originalBuffer).metadata();
+    } catch (e) {
+      // Si sharp no puede leer los metadatos, no es una imagen válida.
+      throw new Error("El archivo descargado no es una imagen válida, activando fallback.");
+    }
+    
+    if (originalSize > MAX_INPUT_SIZE_BYTES) throw new Error(`La imagen excede el límite.`);
+    
     if (metadata.pages && metadata.pages > 1) {
-      return sendOriginal(res, originalBuffer, originalContentTypeHeader);
+      return sendOriginal(res, originalBuffer, response.headers.get('content-type'));
     }
     
     // --- PIPELINE ULTRA-RÁPIDO ---
@@ -73,9 +76,9 @@ export default async function handler(req, res) {
     const compressedSize = compressedBuffer.length;
 
     if (compressedSize < originalSize) {
-      return sendCompressed(res, compressedBuffer, originalSize, compressedSize, 'image/webp');
+      return sendCompressed(res, compressedBuffer, originalSize, compressedSize);
     } else {
-      return sendOriginal(res, originalBuffer, originalContentTypeHeader);
+      return sendOriginal(res, originalBuffer, response.headers.get('content-type'));
     }
     
   } catch (error) {
@@ -88,9 +91,9 @@ export default async function handler(req, res) {
 }
 
 // --- FUNCIONES HELPER ---
-function sendCompressed(res, buffer, originalSize, compressedSize, contentType) {
+function sendCompressed(res, buffer, originalSize, compressedSize) {
   res.setHeader('Cache-Control', 's-maxage=31536000, stale-while-revalidate');
-  res.setHeader('Content-Type', contentType);
+  res.setHeader('Content-Type', 'image/webp');
   res.setHeader('X-Original-Size', originalSize);
   res.setHeader('X-Compressed-Size', compressedSize);
   res.send(buffer);
@@ -102,4 +105,4 @@ function sendOriginal(res, buffer, contentType) {
   res.setHeader('X-Original-Size', buffer.length);
   res.setHeader('X-Compressed-Size', buffer.length);
   res.send(buffer);
-  }
+}
