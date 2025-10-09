@@ -2,13 +2,14 @@ import fetch from 'node-fetch';
 import sharp from 'sharp';
 import { AbortController } from 'abort-controller';
 
-// --- CONFIGURACIÓN DE FUSIÓN (Original + Mejoras) ---
+// --- CONFIGURACIÓN "CAZADOR INFALIBLE" ---
 const MAX_INPUT_SIZE_BYTES = 30 * 1024 * 1024;
 const FETCH_TIMEOUT_MS = 20000;
-// --- LA FILOSOFÍA ORIGINAL: RESOLUCIÓN AGRESIVA ---
 const MAX_IMAGE_WIDTH = 600;
-// --- LA FILOSOFÍA ORIGINAL: CALIDAD EXTREMA ---
-const WEBP_QUALITY = 5;
+
+// --- OBJETIVOS DE TAMAÑO ---
+const TARGET_SIZE_STRICT = 100 * 1024;  // 100 KB
+const TARGET_SIZE_RELAXED = 150 * 1024; // 150 KB
 
 // --- HEADERS DE TU SCRIPT ORIGINAL (LA LLAVE MAESTRA) ---
 function getHeaders(domain) {
@@ -21,12 +22,50 @@ function getHeaders(domain) {
   };
 }
 
+// --- NUEVO ALGORITMO "CAZADOR INFALIBLE" ---
+async function compressToTargetSize(inputBuffer, targetSize) {
+  let minQuality = 5;
+  let maxQuality = 100;
+  let bestBuffer = null;
+
+  const baseProcessor = sharp(inputBuffer)
+    .trim()
+    .resize({ width: MAX_IMAGE_WIDTH, withoutEnlargement: true })
+    .png({ colours: 256 });
+  
+  for (let i = 0; i < 8; i++) {
+    const currentQuality = Math.floor((minQuality + maxQuality) / 2);
+    if (currentQuality < minQuality) break;
+
+    const currentBuffer = await baseProcessor.clone().webp({ quality: currentQuality, effort: 6 }).toBuffer();
+
+    if (currentBuffer.length <= targetSize) {
+      bestBuffer = currentBuffer;
+      minQuality = currentQuality + 1;
+    } else {
+      maxQuality = currentQuality - 1;
+    }
+  }
+
+  // --- LA LÓGICA INFALIBLE ---
+  if (bestBuffer) {
+    // Si encontramos una versión que cumple el objetivo, la devolvemos.
+    return bestBuffer;
+  } else {
+    // Si NINGUNA calidad (ni siquiera la 5) cumplió el objetivo,
+    // devolvemos el "mejor esfuerzo": la versión con la calidad más baja posible.
+    console.log(`[WARN] No se alcanzó el objetivo de ${targetSize / 1024}KB. Devolviendo el mejor esfuerzo (calidad 5).`);
+    return await baseProcessor.clone().webp({ quality: 5, effort: 6 }).toBuffer();
+  }
+}
+
+
 export default async function handler(req, res) {
   if (req.url.includes('favicon')) {
     return res.status(204).send(null);
   }
   
-  const { url: imageUrl } = req.query;
+  const { url: imageUrl, mode } = req.query;
 
   if (!imageUrl) {
     return res.status(400).json({ error: 'Falta el parámetro url' });
@@ -55,28 +94,19 @@ export default async function handler(req, res) {
     const originalBuffer = Buffer.from(arrayBuffer);
     
     const originalSize = originalBuffer.length;
-    if (originalSize === 0) throw new Error("La imagen descargada está vacía (0 bytes).");
-    if (originalSize > MAX_INPUT_SIZE_BYTES) throw new Error(`La imagen excede el límite de tamaño.`);
+    if (originalSize === 0) throw new Error("La imagen descargada está vacía.");
+    if (originalSize > MAX_INPUT_SIZE_BYTES) throw new Error(`La imagen excede el límite.`);
 
     const metadata = await sharp(originalBuffer).metadata();
     if (metadata.pages && metadata.pages > 1) {
       return sendOriginal(res, originalBuffer, originalContentTypeHeader);
     }
     
-    // --- PIPELINE DE HYPER-COMPRESSION MEJORADO ---
-    const compressedBuffer = await sharp(originalBuffer)
-      .trim() // Mejora: Eliminar bordes innecesarios.
-      .resize({ width: MAX_IMAGE_WIDTH, withoutEnlargement: true }) // Filosofía Original: 600px.
-      // --- NUESTRA ARMA SECRETA: QUANTIZATION ---
-      .png({ colours: 256 }) // Mejora: Reduce la paleta antes de comprimir.
-      .webp({ quality: WEBP_QUALITY, effort: 6 }) // Filosofía Original: Calidad 5 + Máximo esfuerzo.
-      .toBuffer();
-    
-    const compressedSize = compressedBuffer.length;
+    const targetSize = mode === 'relaxed' ? TARGET_SIZE_RELAXED : TARGET_SIZE_STRICT;
+    const compressedBuffer = await compressToTargetSize(originalBuffer, targetSize);
 
-    // Solo servimos nuestra versión si es realmente más pequeña.
-    if (compressedSize < originalSize) {
-      return sendCompressed(res, compressedBuffer, originalSize, compressedSize, 'image/webp');
+    if (compressedBuffer && compressedBuffer.length < originalSize) {
+      return sendCompressed(res, compressedBuffer, originalSize, compressedBuffer.length, 'image/webp');
     } else {
       return sendOriginal(res, originalBuffer, originalContentTypeHeader);
     }
@@ -84,7 +114,7 @@ export default async function handler(req, res) {
   } catch (error) {
     console.error("[FALLBACK ACTIVADO]", { url: imageUrl, errorMessage: error.message });
     res.setHeader('Location', imageUrl);
-    res.status(302).send('Redireccionando a la fuente original por un error.');
+    res.status(302).send('Redireccionando a la fuente original por un error de sistema.');
   } finally {
     clearTimeout(timeoutId);
   }
@@ -105,4 +135,4 @@ function sendOriginal(res, buffer, contentType) {
   res.setHeader('X-Original-Size', buffer.length);
   res.setHeader('X-Compressed-Size', buffer.length);
   res.send(buffer);
-}
+      }
